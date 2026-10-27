@@ -82,8 +82,13 @@ are three layers:
 ```
 
 **Language aware where possible.** Rules can match code structure, not just
-paths: deleting a class definition in a Python file queues for review. Where
-a language isn't understood, matching falls back to the file.
+paths: deleting a class definition in a Python file queues for review.
+gripMCP detects the language from the file itself (extension, shebang,
+content), so `lang` is an optional filter, not a requirement. When a
+definition is deleted or changed, gripMCP also finds the other files that
+import or use it and shows them as part of the evidence, so I see what breaks.
+Where a language isn't detected or understood, matching falls back to the
+file.
 
 **Log** is append-only JSONL, rendered as
 `14:02 queue #12 cost .github/workflows/ci.yml  adds CI on every push`.
