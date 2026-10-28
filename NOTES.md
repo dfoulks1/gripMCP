@@ -35,7 +35,10 @@ Decisions:
 - Dependent work: the agent may build on its own pending changes, marked as
   dependent. If I reject the parent, its children fall with it (like stacked
   PRs).
-- Review surface: terminal first. A web page later, maybe.
+- Review surface: right here, in the session where the work happens. No
+  separate tool to open.
+- Rules are trust, written down. *Allow* means I trust that kind of change;
+  *queue* means not yet. The log shows whether the trust held.
 
 Rule categories to start with: **cost** (CI workflows, cloud resources, paid
 APIs), **outward** (push, send, publish), and **irreversible** (delete,
@@ -47,19 +50,31 @@ overwrite).
 an agent can skip calling them. Built-in file tools never touch MCP. So there
 are three layers:
 
-1. **Gate.** The agent edits freely. The gate fires at a checkpoint: an event
-   type I configure (commit, push, deploy, or an immediate action like mail,
-   an API call, or a delete). The agent's pre-tool hook (Claude Code
-   `PreToolUse`, Kiro hooks later) sends the checkpoint and its batch of
-   changes to gripMCP, which matches each against the rules and answers
-   *allow*, *block*, or *queued as #N*. On a queue answer the hook denies the
-   call with that message and the agent moves on. The hooks are agent-specific
-   (lock-in), so they stay thin and the logic lives in gripMCP.
+1. **Gate.** The agent edits freely. The gate is the **verbs**: the few
+   actions where work lands (commit, push, deploy, mail, an API call, a
+   delete). gripMCP owns them. The agent calls gripMCP's verb, gripMCP
+   matches the batch against the rules and answers *allow*, *block*, or
+   *queued as #N*, and the agent moves on. gripMCP holds the credentials
+   (push token, mail login), so the agent can't land work without it.
+   Backstops: agent permissions deny the raw paths (`git push`), and git
+   hooks (`pre-commit`, `pre-push`) run the same rules for any agent.
 2. **Queue.** A queued change is held as a set of components (files,
    commands) that I can approve whole or in part. Only the approved
    components land. Not line by line.
 3. **MCP tools.** The agent calls `status` to learn outcomes and reasons. I
-   call `pending`, `approve`, and `reject` from the terminal or in-session.
+   call `pending`, `approve`, and `reject` here in the session.
+
+**Hold and freeze.** I can interrupt at any moment and make the work wait on
+gripMCP:
+
+- **Hold:** the agent keeps working, but every verb queues, whatever the
+  rules say.
+- **Freeze:** the agent itself waits. A thin agent hook (Claude Code
+  `PreToolUse`) denies every tool call, edits included, with "held by
+  gripMCP," until I release it. The work stays in place; nothing is lost.
+  The hook is agent-specific (lock-in), so it stays thin.
+
+Freeze is one word.
 
 **Rules** live in one YAML file. `on` names the checkpoint event:
 
@@ -89,6 +104,20 @@ definition is deleted or changed, gripMCP also finds the other files that
 import or use it and shows them as part of the evidence, so I see what breaks.
 Where a language isn't detected or understood, matching falls back to the
 file.
+
+**Extensible by plugin.** The core stays small: rules, queue, log. Two kinds
+of plugin hang off it:
+
+- **Verbs:** each gated action (commit, push, mail, ...) is a plugin. A new
+  verb needs no core change.
+- **Analyzers:** what understands a change. Each language is a plugin
+  (detection, structural diff, cross-file impact).
+
+Rules name plugins (`on: push`, `lang: python`), and plugins can extend the
+rule language itself: a plugin might add a `never` action, or a new matcher.
+A rule that uses a keyword no loaded plugin defines fails closed (queue, and
+say why), never open. A plugin runs only when a rule asks for it, so the allow
+path stays cheap.
 
 **Log** is append-only JSONL, rendered as
 `14:02 queue #12 cost .github/workflows/ci.yml  adds CI on every push`.
@@ -137,6 +166,8 @@ policy asks for.
 - Kiro hooks and other agents.
 - How queued components are stored (staging branch, patches, or both).
 - Trailer for auto-allowed changes.
+- Rule promotion: gripMCP suggests loosening a rule from its record ("20
+  approvals, 0 rejections, allow?"). Only I decide.
 - Partial approval must be cognizant of a change's components: which ones
   depend on each other, so approving one without its dependency is caught,
   and which dependent changes survive.
